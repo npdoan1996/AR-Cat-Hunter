@@ -1,14 +1,13 @@
 import cv2
 import numpy as np
 import math
-import random
 print(cv2.__version__)
 
 # global variables
 dispW = 640
 dispH = 480
 flip = 2
-num_of_cat = 4
+numOfCat = 0
 
 # Uncomment These next Two Line for Pi Camera
 camSet='nvarguscamerasrc !  video/x-raw(memory:NVMM), width=3264, height=2464, format=NV12, framerate=21/1 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(dispW)+', height='+str(dispH)+', format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink'
@@ -47,11 +46,6 @@ def drawCat(location):
         dst = cv2.add(img_bg, img_fg)
         frame[y:y + 100, x:x + 100] = dst
 
-class Cat: 
-    def __init__(self, location, alive):
-        self.location = location
-        self.alive = alive
-
 #loading cat image and making its mask to overlay on the video feed
 cat = cv2.imread("cat.png",-1)
 cat_mask = cat[:,:,3]
@@ -62,13 +56,7 @@ cat = cat[:,:,0:3]
 cat = cv2.resize(cat,(100,100),interpolation=cv2.INTER_AREA)
 cat_mask = cv2.resize(cat_mask,(100,100),interpolation=cv2.INTER_AREA)
 cat_mask_inv = cv2.resize(cat_mask_inv,(100,100),interpolation=cv2.INTER_AREA)
-
-augmented_cats = []
-for i in range(num_of_cat):
-    x = random.randint(0, dispW - 100)
-    y = random.randint(0, dispH-100)
-    augmented_cats.append(Cat((x,y), True))
-    print(augmented_cats[i].location)
+cat_positions = []
 
 while True:
     ret, frame = cam.read()
@@ -82,14 +70,10 @@ while True:
     orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_CLOSE,kernel_close)
     orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
      
-    detected_areas = colorDetect()
-    i = 0 
-    for area in detected_areas: 
-        augmented_cats[i] = Cat(area, True)
-        i+=1
+    detected_areas = colorDetect()    
 
-    for augmented_cat in augmented_cats: 
-        drawCat(augmented_cat.location)
+    for position in detected_areas: 
+        drawCat(position)
 
 
     cv2.imshow('orange_mask', orange_mask)
