@@ -47,7 +47,7 @@ def drawCat(location):
         frame[y:y + 100, x:x + 100] = dst
 
 #loading cat image and making its mask to overlay on the video feed
-cat = cv2.imread("cat.png",-1)
+cat = cv2.imread("images/cat.png",-1)
 cat_mask = cat[:,:,3]
 cat_mask_inv = cv2.bitwise_not(cat_mask)
 cat = cat[:,:,0:3]

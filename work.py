@@ -9,6 +9,8 @@ dispW = 640
 dispH = 480
 flip = 2
 num_of_cat = 4
+crosshair_x = int(dispW/2-64)
+crosshair_y = int(dispH/2-64)
 
 # Uncomment These next Two Line for Pi Camera
 camSet='nvarguscamerasrc !  video/x-raw(memory:NVMM), width=3264, height=2464, format=NV12, framerate=21/1 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(dispW)+', height='+str(dispH)+', format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink'
@@ -38,7 +40,7 @@ def colorDetect():
             location.append((int(x),int(y)))
     return location
 
-def drawCat(location):
+def drawAliveCat(location):
     x,y = location 
     if dispW - x > 100 and dispH - y > 100: 
         roi = frame[y:y+100, x:x+100] #The area of roi, cropping the frame 
@@ -47,28 +49,61 @@ def drawCat(location):
         dst = cv2.add(img_bg, img_fg)
         frame[y:y + 100, x:x + 100] = dst
 
+def drawDeadCat(location):
+    x,y = location 
+    if dispW - x > 200 and dispH - y > 100: 
+        roi = frame[y:y+100, x:x+200] #The area of roi, cropping the frame 
+        img_bg = cv2.bitwise_and(roi, roi, mask=dead_cat_mask_inv)
+        img_fg = cv2.bitwise_and(dead_cat, dead_cat, mask=dead_cat_mask)
+        dst = cv2.add(img_bg, img_fg)
+        frame[y:y + 100, x:x + 200] = dst
+
+def drawCrosshair(x,y): 
+    ROI = frame[y:y+128, x:x+128] #The area of roi, cropping the frame 
+    ROIBG = cv2.bitwise_and(ROI,ROI,mask=crosshair_BGMask)
+    frame[y:y + 128, x:x + 128] = ROIBG
+
+
 class Cat: 
-    def __init__(self, location, alive):
+    def __init__(self, location, alive, display):
         self.location = location
         self.alive = alive
+        self.display = display
 
-#loading cat image and making its mask to overlay on the video feed
-cat = cv2.imread("cat.png",-1)
+#loading alive cat image and making its mask to overlay on the video feed
+cat = cv2.imread("images/cat.png",-1)
 cat_mask = cat[:,:,3]
 cat_mask_inv = cv2.bitwise_not(cat_mask)
 cat = cat[:,:,0:3]
 
-# resizing cat image
+# resizing alive cat image
 cat = cv2.resize(cat,(100,100),interpolation=cv2.INTER_AREA)
 cat_mask = cv2.resize(cat_mask,(100,100),interpolation=cv2.INTER_AREA)
 cat_mask_inv = cv2.resize(cat_mask_inv,(100,100),interpolation=cv2.INTER_AREA)
+
+#loading dead cat image and making its mask to overlay on the video feed
+dead_cat = cv2.imread("images/dead_cat.png",-1)
+dead_cat_mask = dead_cat[:,:,3]
+dead_cat_mask_inv = cv2.bitwise_not(dead_cat_mask)
+dead_cat = dead_cat[:,:,0:3]
+
+# resizing dead cat image
+dead_cat = cv2.resize(dead_cat,(200,100),interpolation=cv2.INTER_AREA)
+dead_cat_mask = cv2.resize(dead_cat_mask,(200,100),interpolation=cv2.INTER_AREA)
+dead_cat_mask_inv = cv2.resize(dead_cat_mask_inv,(200,100),interpolation=cv2.INTER_AREA)
+
+#loading crosshair image and making its mask to overlay on the video feed
+crosshair = cv2.imread("images/crosshair.png",-1)
+crosshair = cv2.resize(crosshair,(128,128))
+crosshairGray = cv2.cvtColor(crosshair, cv2.COLOR_BGR2GRAY)
+_,crosshair_BGMask = cv2.threshold(crosshairGray,225,255,cv2.THRESH_BINARY)
+crosshair_FGMask = cv2.bitwise_not(crosshair_BGMask) 
 
 augmented_cats = []
 for i in range(num_of_cat):
     x = random.randint(0, dispW - 100)
     y = random.randint(0, dispH-100)
-    augmented_cats.append(Cat((x,y), True))
-    print(augmented_cats[i].location)
+    augmented_cats.append(Cat((x,y), True, False))
 
 while True:
     ret, frame = cam.read()
@@ -83,20 +118,27 @@ while True:
     orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
      
     detected_areas = colorDetect()
+    
+    for i in range(num_of_cat):
+        augmented_cats[i] = (Cat((0,0), True, False))
+
     i = 0 
     for area in detected_areas: 
-        augmented_cats[i] = Cat(area, True)
+        augmented_cats[i] = Cat(area, True, True)
         i+=1
 
     for augmented_cat in augmented_cats: 
-        drawCat(augmented_cat.location)
+        if  augmented_cat.display == False: 
+            continue
+        else: 
+            drawAliveCat(augmented_cat.location)
 
+    drawCrosshair(crosshair_x,crosshair_y)
 
     cv2.imshow('orange_mask', orange_mask)
     cv2.moveWindow('orange_mask',0,500)
     cv2.imshow('colorDetection',frame)
     cv2.moveWindow('colorDetection',0,0)
-    
 
 
     if cv2.waitKey(1)==ord('q'):
