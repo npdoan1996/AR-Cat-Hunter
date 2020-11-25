@@ -11,6 +11,7 @@ flip = 2
 num_of_cat = 4
 crosshair_x = int(dispW/2-64)
 crosshair_y = int(dispH/2-64)
+score = 0
 counter = 0 
 evt = -1
 
@@ -19,7 +20,6 @@ def click(event,x,y,flag,params):
     global evt
     if event==cv2.EVENT_LBUTTONDOWN:
         print('Mouse Clicked')
-        print(x,',',y)
         pnt=(x,y)
         evt=event
 
@@ -78,8 +78,8 @@ def drawCrosshair(x,y):
     frame[y:y + 128, x:x + 128] = ROIBG
 
 def isCollision(cat_x,cat_y):
-    distance = math.sqrt(math.pow(cat_x - crosshair_x, 2) + math.pow(cat_y - crosshair_y, 2))
-    if distance < 27: 
+    distance = math.sqrt(math.pow(cat_x - int(dispW/2), 2) + math.pow(cat_y - (dispH/2), 2))
+    if distance < 50: 
         return True
     else:
         return False  
@@ -140,34 +140,39 @@ while True:
      
     detected_areas = colorDetect()
     
+    # Clear all cats in the list 
     for i in range(num_of_cat):
         alive_cats[i] = Cat((0,0), True, False)
 
+    # Append detected into list
     i = 0 
     for area in detected_areas: 
         alive_cats[i] = Cat(area, True, True)
         i+=1
 
-    for alive_cat in alive_cats: 
+    # Alive cat logic 
+    for i in range(len(detected_areas)): 
+        a = False 
+        for d_cat in dead_cats: 
+            distance = math.sqrt(math.pow(d_cat.location[0] - alive_cats[i].location[0], 2) + math.pow(d_cat.location[1] - alive_cats[i].location[1], 2))
+            if distance < 100: 
+                alive_cats[i].display = False
+                a = True
+                break
+        if a: 
+            continue
+
         collision = False
         if evt == 1: 
-            collision = isCollision(alive_cat.location[0], alive_cat.location[1])
-            print(collision)
+            collision = isCollision(alive_cats[i].location[0]+50, alive_cats[i].location[1]+50)
             evt = -1
         if collision: 
-            alive_cat.display = False
-            dead_cats.append(Cat(alive_cat.location, False, True))
-        distance = 100000
-        for d_cat in dead_cats: 
-            new_distance = math.sqrt(math.pow(d_cat.location[0] - alive_cat.location[0], 2) + math.pow(d_cat.location[1] - alive_cat.location[1], 2))
-            if distance > new_distance: 
-                distance = new_distance
-            if distance < 100: 
-                alive_cat.display = False
-                break
+            alive_cats[i].display = False
+            dead_cats.append(Cat(alive_cats[i].location, False, True))
+            score += 1 
 
-        if alive_cat.display != False: 
-            drawAliveCat(alive_cat.location)
+        if alive_cats[i].display != False: 
+            drawAliveCat(alive_cats[i].location)
 
     counter+=1
     if counter == 150: 
@@ -177,17 +182,17 @@ while True:
         else: 
            dead_cats.pop(0); 
 
+    # Dead cat logic
     for d_cat in dead_cats:
         drawDeadCat(d_cat.location)
     
+    # Display crosshair, score and time
     drawCrosshair(crosshair_x,crosshair_y)
 
     cv2.imshow('orange_mask', orange_mask)
     cv2.moveWindow('orange_mask',0,500)
     cv2.imshow('colorDetection',frame)
     cv2.moveWindow('colorDetection',0,0)
-
-
 
     if cv2.waitKey(1)==ord('q'):
         break
