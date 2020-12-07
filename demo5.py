@@ -8,7 +8,7 @@ print(cv2.__version__)
 # global variables
 dispW = 640
 dispH = 480
-flip = 2
+flip = 0
 num_of_cat = 4
 crosshair_x = int(dispW/2-64)
 crosshair_y = int(dispH/2-64)

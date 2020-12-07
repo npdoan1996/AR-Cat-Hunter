@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import math
 import random
+import spidev 
 from time import time
 print(cv2.__version__)
 
@@ -16,19 +17,16 @@ score = 0
 counter = 0 
 evt = -1
 
-# Initializing time
+# Initialize SPI
+spi = spidev.SpiDev()
+spi.open(0, 0)
+spi.max_speed_hz = 100000
+spi.mode = 0
+
+# Initialize time
 start_time = int(time())
 
-def click(event,x,y,flag,params): 
-    global pnt
-    global evt
-    if event==cv2.EVENT_LBUTTONDOWN:
-        print('Mouse Clicked')
-        pnt=(x,y)
-        evt=event
-
 cv2.namedWindow('colorDetection')
-cv2.setMouseCallback('colorDetection',click)
 # Uncomment These next Two Line for Pi Camera
 camSet='nvarguscamerasrc !  video/x-raw(memory:NVMM), width=3264, height=2464, format=NV12, framerate=21/1 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(dispW)+', height='+str(dispH)+', format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink'
 cam = cv2.VideoCapture(camSet)
@@ -142,6 +140,18 @@ while game_play:
     # orange_mask = cv2.dilate(orange_mask, kernel_dilate, iterations=1)
     orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_CLOSE,kernel_close)
     orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
+
+    # join stick data
+    position = bytearray(5)
+    position = spi.xfer2([0x00,0x00,1000000, 10, 8])
+    x = (position[1] << 8) | position[0]
+    y = (position[3] << 8) | position[2]
+
+    # button pressed logic
+    button = (position[4] & 1) | (position[4] & 2)
+    if button == 1 or button == 2: 
+        evt = 1
+
      
     detected_areas = colorDetect()
     
