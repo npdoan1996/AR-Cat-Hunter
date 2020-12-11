@@ -20,6 +20,7 @@ counter = 0
 evt = -1
 ALPHA = 0.2
 move_angle = 1.5
+prev_button = 0
 
 # Initialize SPI
 spi = spidev.SpiDev()
@@ -192,9 +193,9 @@ try:
 
         # button pressed logic
         button = (position[4] & 1) | (position[4] & 2)
-        if button == 1 or button == 2: 
+        if button == 2 and prev_button == 2: 
             evt = 1
-
+        prev_button = button
         
         detected_areas = colorDetect()
         
