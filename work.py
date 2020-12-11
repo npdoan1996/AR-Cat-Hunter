@@ -3,25 +3,35 @@ import numpy as np
 import math
 import random
 import spidev 
+import RPi.GPIO as GPIO
+from PCA9685 import PCA9685
 from time import time
 print(cv2.__version__)
 
 # global variables
-dispW = 640
-dispH = 480
-flip = 2
+dispW = 1280
+dispH = 960
+flip = 0
 num_of_cat = 4
 crosshair_x = int(dispW/2-64)
 crosshair_y = int(dispH/2-64)
 score = 0
 counter = 0 
 evt = -1
+ALPHA = 0.2
+move_angle = 1.5
 
 # Initialize SPI
 spi = spidev.SpiDev()
 spi.open(0, 0)
 spi.max_speed_hz = 100000
 spi.mode = 0
+
+# Initialize Servo Motor
+pwm = PCA9685()
+x_filter, y_filter = 512, 512
+motor_x, motor_y = 90, 0
+pwm.setPWMFreq(50)
 
 # Initialize time
 start_time = int(time())
@@ -56,18 +66,16 @@ def colorDetect():
             location.append((int(x),int(y)))
     return location
 
-def drawAliveCat(location):
-    x,y = location 
-    if dispW - x > 100 and dispH - y > 100: 
+def drawAliveCat(x,y):
+    if dispW - x > 100 and dispH - y > 100 and x > 0 and y > 0: 
         roi = frame[y:y+100, x:x+100] #The area of roi, cropping the frame 
         img_bg = cv2.bitwise_and(roi, roi, mask=cat_mask_inv)
         img_fg = cv2.bitwise_and(cat, cat, mask=cat_mask)
         dst = cv2.add(img_bg, img_fg)
         frame[y:y + 100, x:x + 100] = dst
 
-def drawDeadCat(location):
-    x,y = location 
-    if dispW - x > 200 and dispH - y > 100: 
+def drawDeadCat(x,y):
+    if dispW - x > 200 and dispH - y > 100 and x > 0 and y > 0: 
         roi = frame[y:y+100, x:x+200] #The area of roi, cropping the frame 
         img_bg = cv2.bitwise_and(roi, roi, mask=dead_cat_mask_inv)
         img_fg = cv2.bitwise_and(dead_cat, dead_cat, mask=dead_cat_mask)
@@ -86,9 +94,37 @@ def isCollision(cat_x,cat_y):
     else:
         return False  
 
+def motorControl(x,y,motor_x,motor_y,move_angle): 
+    x_move = 0
+    y_move = 0
+    if x > 700:
+        motor_x -= move_angle 
+        x_move = -1
+    elif x < 350: 
+        motor_x += move_angle
+        x_move = 1
+    if y >= 750 and y <= 1000: 
+        motor_y += move_angle
+        y_move = 1 
+    elif y < 300: 
+        motor_y -= move_angle
+        y_move = -1
+
+    if motor_x > 170: 
+        motor_x = 170
+    elif motor_x < 10: 
+        motor_x = 10 
+    
+    if motor_y > 90: 
+        motor_y = 90
+    elif motor_y < 10: 
+        motor_y = 10
+    return motor_x, motor_y, x_move, y_move
+
 class Cat: 
-    def __init__(self, location, alive, display):
-        self.location = location
+    def __init__(self, x, y, alive, display):
+        self.x = x
+        self.y = y
         self.alive = alive
         self.display = display
 
@@ -126,109 +162,133 @@ dead_cats = []
 for i in range(num_of_cat):
     x = random.randint(0, dispW - 100)
     y = random.randint(0, dispH-100)
-    alive_cats.append(Cat((x,y), True, False))
+    alive_cats.append(Cat(x, y, True, False))
 
 game_play = True
-while game_play:
-    ret, frame = cam.read()
-
-    hsv_frame = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
-
-    # Orange detection
-    orange_mask = cv2.inRange(hsv_frame, low_orange, high_orange)
-    orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_OPEN,kernel_open)
-    # orange_mask = cv2.dilate(orange_mask, kernel_dilate, iterations=1)
-    orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_CLOSE,kernel_close)
-    orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
-
-    # join stick data
-    position = bytearray(5)
-    position = spi.xfer2([0x00,0x00,1000000, 10, 8])
-    x = (position[1] << 8) | position[0]
-    y = (position[3] << 8) | position[2]
-
-    # button pressed logic
-    button = (position[4] & 1) | (position[4] & 2)
-    if button == 1 or button == 2: 
-        evt = 1
-
-     
-    detected_areas = colorDetect()
-    
-    # Clear all cats in the list 
-    for i in range(num_of_cat):
-        alive_cats[i] = Cat((0,0), True, False)
-
-    # Append detected into list
-    i = 0 
-    for area in detected_areas: 
-        alive_cats[i] = Cat(area, True, True)
-        i+=1
-
-    # Alive cat logic 
-    for i in range(len(detected_areas)): 
-        a = False 
-        for d_cat in dead_cats: 
-            distance = math.sqrt(math.pow(d_cat.location[0] - alive_cats[i].location[0], 2) + math.pow(d_cat.location[1] - alive_cats[i].location[1], 2))
-            if distance < 100: 
-                alive_cats[i].display = False
-                a = True
-                break
-        if a: 
-            continue
-
-        collision = False
-        if evt == 1: 
-            collision = isCollision(alive_cats[i].location[0]+50, alive_cats[i].location[1]+50)
-            
-        if collision: 
-            alive_cats[i].display = False
-            dead_cats.append(Cat(alive_cats[i].location, False, True))
-            score += 1 
-
-        if alive_cats[i].display != False: 
-            drawAliveCat(alive_cats[i].location)
-
-    evt = -1
-    counter+=1
-    if counter == 150: 
-        counter = 0 
-        if not dead_cats:
-            continue 
-        else: 
-           dead_cats.pop(0); 
-
-    # Dead cat logic
-    for d_cat in dead_cats:
-        drawDeadCat(d_cat.location)
-    
-    # Display crosshair, score and time
-    drawCrosshair(crosshair_x,crosshair_y)
-    fnt=cv2.FONT_HERSHEY_DUPLEX
-    scoreText = "Score: " + str(score)
-    cv2.putText(frame,scoreText,(10,dispH-30),fnt,1,(0,121,250),3)
-    
-    timer = int(time()) - start_time
-    cv2.putText(frame,str(timer),(dispW-50,dispH-30),fnt,1,(0,121,250),3)
-
-    cv2.imshow('orange_mask', orange_mask)
-    cv2.moveWindow('orange_mask',0,500)
-    cv2.imshow('colorDetection',frame)
-    cv2.moveWindow('colorDetection',0,0)
-
-    if cv2.waitKey(1)==ord('q'):
-        break
-    elif timer >= 60:
-        game_play = False
-else: 
-    while True: 
+try:
+    while game_play:
         ret, frame = cam.read()
-        cv2.putText(frame,"Game Over",(int(dispW/2)-80,int(dispH/2)),fnt,1,(0,121,250),4)
+
+        hsv_frame = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
+
+        # Orange detection
+        orange_mask = cv2.inRange(hsv_frame, low_orange, high_orange)
+        orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_OPEN,kernel_open)
+        # orange_mask = cv2.dilate(orange_mask, kernel_dilate, iterations=1)
+        orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_CLOSE,kernel_close)
+        orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
+
+        # join stick data
+        position = bytearray(5)
+        position = spi.xfer2([0x00,0x00,1000000, 10, 8])
+        x = (position[1] << 8) | position[0]
+        y = (position[3] << 8) | position[2]
+        x_filter = x*ALPHA + x_filter*(1-ALPHA)
+        y_filter = y*ALPHA + y_filter*(1-ALPHA)
+        # print(y_filter)
+        motor_x, motor_y, x_move, y_move = motorControl(x_filter,y_filter,motor_x,motor_y,move_angle)
+        pwm.setRotationAngle(1,motor_x)
+        pwm.setRotationAngle(0,motor_y)
+
+        # button pressed logic
+        button = (position[4] & 1) | (position[4] & 2)
+        if button == 1 or button == 2: 
+            evt = 1
+
+        
+        detected_areas = colorDetect()
+        
+        # Clear all cats in the list 
+        for i in range(num_of_cat):
+            alive_cats[i] = Cat(0, 0, True, False)
+
+        # Append detected into list
+        i = 0 
+        for area in detected_areas: 
+            alive_cats[i] = Cat(area[0], area[1], True, True)
+            i+=1
+
+        # Alive cat logic 
+        for i in range(len(detected_areas)): 
+            a = False 
+            for d_cat in dead_cats: 
+                distance = math.sqrt(math.pow(d_cat.x - alive_cats[i].x, 2) + math.pow(d_cat.y - alive_cats[i].y, 2))
+                if distance < 200: 
+                    # alive_cats[i].display = False
+                    alive_cats[i].alive = False
+                    a = True
+                    break
+            if a: 
+                continue
+
+            collision = False
+            if evt == 1: 
+                collision = isCollision(alive_cats[i].x+50, alive_cats[i].y+50)
+                
+            if collision: 
+                # alive_cats[i].display = False
+                alive_cats[i].alive = False
+                dead_cats.append(Cat(alive_cats[i].x, alive_cats[i].y, False, True))
+                score += 1 
+
+            if alive_cats[i].display != False: 
+                drawAliveCat(alive_cats[i].x, alive_cats[i].y)
+            else: 
+                drawDeadCat(alive_cats[i].x, alive_cats[i].y)
+
+        evt = -1
+        counter+=1
+        if counter == 150: 
+            counter = 0 
+            if not dead_cats:
+                continue 
+            else: 
+                dead_cats.pop(0); 
+
+        # Dead cat logic
+        for d_cat in dead_cats:
+            if x_move == 1: 
+                d_cat.x += move_angle*20
+            elif x_move == -1: 
+                d_cat.x -= move_angle*20
+            if y_move == 1: 
+                d_cat.y += move_angle*20
+            elif y_move == -1:
+                d_cat.y -= move_angle*20
+            d_cat.x, d_cat.y = int(d_cat.x), int(d_cat.y)
+            drawDeadCat(d_cat.x, d_cat.y)
+            
+
+        # Display crosshair, score and time
+        drawCrosshair(crosshair_x,crosshair_y)
+        fnt=cv2.FONT_HERSHEY_DUPLEX
+        scoreText = "Score: " + str(score)
+        cv2.putText(frame,scoreText,(10,dispH-30),fnt,1,(0,121,250),3)
+        
+        timer = int(time()) - start_time
+        cv2.putText(frame,str(timer),(dispW-50,dispH-30),fnt,1,(0,121,250),3)
+
+        # cv2.imshow('orange_mask', orange_mask)
+        # cv2.moveWindow('orange_mask',0,500)
         cv2.imshow('colorDetection',frame)
         cv2.moveWindow('colorDetection',0,0)
+
         if cv2.waitKey(1)==ord('q'):
             break
+        elif timer >= 60:
+            game_play = False
+    else: 
+        while True: 
+            ret, frame = cam.read()
+            cv2.putText(frame,"Game Over",(int(dispW/2)-80,int(dispH/2)),fnt,1,(0,121,250),4)
+            cv2.imshow('colorDetection',frame)
+            cv2.moveWindow('colorDetection',0,0)
+            if cv2.waitKey(1)==ord('q'):
+                break
 
 
-cam.release()
-cv2.destroyAllWindows()
+finally:
+    spi.close()
+    pwm.exit_PCA9685()
+    cam.release()
+    cv2.destroyAllWindows()
