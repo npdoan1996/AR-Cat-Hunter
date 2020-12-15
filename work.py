@@ -18,9 +18,12 @@ crosshair_y = int(dispH/2-64)
 score = 0
 counter = 0 
 evt = -1
-ALPHA = 0.2
 move_angle = 1.5
 prev_button = 0
+
+# constants
+ALPHA = 0.15
+GAME_TIME = 90
 
 # Initialize SPI
 spi = spidev.SpiDev()
@@ -31,7 +34,7 @@ spi.mode = 0
 # Initialize Servo Motor
 pwm = PCA9685()
 x_filter, y_filter = 512, 512
-motor_x, motor_y = 90, 0
+motor_x, motor_y = 90, 30
 pwm.setPWMFreq(50)
 
 # Initialize time
@@ -62,7 +65,7 @@ def colorDetect():
         area = cv2.contourArea(cnt)
         (x,y,w,h) = cv2.boundingRect(cnt)
         if area >= 300: 
-            #cv2.drawContours(frame,[cnt],0,(255,0,0),3)
+            # cv2.drawContours(frame,[cnt],0,(255,0,0),3)
             cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
             location.append((int(x),int(y)))
     return location
@@ -98,16 +101,16 @@ def isCollision(cat_x,cat_y):
 def motorControl(x,y,motor_x,motor_y,move_angle): 
     x_move = 0
     y_move = 0
-    if x > 700:
+    if x >= 680 and x <= 1023:
         motor_x -= move_angle 
         x_move = -1
-    elif x < 350: 
+    elif x <= 370: 
         motor_x += move_angle
         x_move = 1
-    if y >= 750 and y <= 1000: 
+    if y >= 700 and y <= 1023: 
         motor_y += move_angle
         y_move = 1 
-    elif y < 300: 
+    elif y <= 400: 
         motor_y -= move_angle
         y_move = -1
 
@@ -179,19 +182,31 @@ try:
         orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_CLOSE,kernel_close)
         orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
 
-        # join stick data
-        position = bytearray(5)
-        position = spi.xfer2([0x00,0x00,1000000, 10, 8])
+        # Join stick data
+        position = spi.xfer2([0,0,0,0,0])
         x = (position[1] << 8) | position[0]
         y = (position[3] << 8) | position[2]
         x_filter = x*ALPHA + x_filter*(1-ALPHA)
         y_filter = y*ALPHA + y_filter*(1-ALPHA)
-        # print(y_filter)
         motor_x, motor_y, x_move, y_move = motorControl(x_filter,y_filter,motor_x,motor_y,move_angle)
         pwm.setRotationAngle(1,motor_x)
         pwm.setRotationAngle(0,motor_y)
+        
+        # Dead cat logic
+        for d_cat in dead_cats:
+            if x_move == 1: 
+                d_cat.x += move_angle*20
+            elif x_move == -1: 
+                d_cat.x -= move_angle*20
+            if y_move == 1: 
+                d_cat.y += move_angle*20
+            elif y_move == -1:
+                d_cat.y -= move_angle*20
+            d_cat.x, d_cat.y = int(d_cat.x), int(d_cat.y)
+            drawDeadCat(d_cat.x, d_cat.y)
+            
 
-        # button pressed logic
+        # Button pressed logic
         button = (position[4] & 1) | (position[4] & 2)
         if button == 2 and prev_button == 2: 
             evt = 1
@@ -239,26 +254,13 @@ try:
 
         evt = -1
         counter+=1
-        if counter == 150: 
+        if counter == 300: 
             counter = 0 
             if not dead_cats:
                 continue 
             else: 
                 dead_cats.pop(0); 
 
-        # Dead cat logic
-        for d_cat in dead_cats:
-            if x_move == 1: 
-                d_cat.x += move_angle*20
-            elif x_move == -1: 
-                d_cat.x -= move_angle*20
-            if y_move == 1: 
-                d_cat.y += move_angle*20
-            elif y_move == -1:
-                d_cat.y -= move_angle*20
-            d_cat.x, d_cat.y = int(d_cat.x), int(d_cat.y)
-            drawDeadCat(d_cat.x, d_cat.y)
-            
 
         # Display crosshair, score and time
         drawCrosshair(crosshair_x,crosshair_y)
@@ -276,12 +278,12 @@ try:
 
         if cv2.waitKey(1)==ord('q'):
             break
-        elif timer >= 60:
+        elif timer >= GAME_TIME:
             game_play = False
     else: 
         while True: 
             ret, frame = cam.read()
-            cv2.putText(frame,"Game Over",(int(dispW/2)-80,int(dispH/2)),fnt,1,(0,121,250),4)
+            cv2.putText(frame,"Game Over",(int(dispW/2)-260,int(dispH/2)),fnt,3,(0,255,0),6)
             cv2.imshow('colorDetection',frame)
             cv2.moveWindow('colorDetection',0,0)
             if cv2.waitKey(1)==ord('q'):
