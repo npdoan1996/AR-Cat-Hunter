@@ -20,6 +20,9 @@ counter = 0
 evt = -1
 move_angle = 1.5
 prev_button = 0
+buzzPin = 40
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(buzzPin,GPIO.OUT)
 
 # constants
 ALPHA = 0.15
@@ -210,8 +213,13 @@ try:
         button = (position[4] & 1) | (position[4] & 2)
         if button == 2 and prev_button == 2: 
             evt = 1
+            GPIO.output(buzzPin,True)
+        else: 
+            evt = -1
+            GPIO.output(buzzPin,False)
         prev_button = button
-        
+
+
         detected_areas = colorDetect()
         
         # Clear all cats in the list 
@@ -252,7 +260,6 @@ try:
             else: 
                 drawDeadCat(alive_cats[i].x, alive_cats[i].y)
 
-        evt = -1
         counter+=1
         if counter == 300: 
             counter = 0 
