@@ -18,21 +18,23 @@ crosshair_y = int(dispH/2-64)
 score = 0
 counter = 0 
 evt = -1
-move_angle = 1.5
+move_angle = 2
 prev_button = 0
 buzzPin = 40
-GPIO.setmode(GPIO.BOARD)
-GPIO.setup(buzzPin,GPIO.OUT)
+
 
 # constants
 ALPHA = 0.15
 GAME_TIME = 90
+OFFSET = 20
 
-# Initialize SPI
+# Initialize SPI and GPIO
 spi = spidev.SpiDev()
 spi.open(0, 0)
 spi.max_speed_hz = 100000
 spi.mode = 0
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(buzzPin,GPIO.OUT)
 
 # Initialize Servo Motor
 pwm = PCA9685()
@@ -69,7 +71,7 @@ def colorDetect():
         (x,y,w,h) = cv2.boundingRect(cnt)
         if area >= 300: 
             # cv2.drawContours(frame,[cnt],0,(255,0,0),3)
-            cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
+            # cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
             location.append((int(x),int(y)))
     return location
 
@@ -174,8 +176,17 @@ for i in range(num_of_cat):
 game_play = True
 try:
     while game_play:
-        ret, frame = cam.read()
+        # Join stick data
+        position = spi.xfer2([0,0,0,0,0])
+        x = (position[1] << 8) | position[0]
+        y = (position[3] << 8) | position[2]
+        x_filter = x*ALPHA + x_filter*(1-ALPHA)
+        y_filter = y*ALPHA + y_filter*(1-ALPHA)
+        motor_x, motor_y, x_move, y_move = motorControl(x_filter,y_filter,motor_x,motor_y,move_angle)
+        pwm.setRotationAngle(1,motor_x)
+        pwm.setRotationAngle(0,motor_y)    
 
+        ret, frame = cam.read()
         hsv_frame = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
 
         # Orange detection
@@ -185,29 +196,6 @@ try:
         orange_mask = cv2.morphologyEx(orange_mask,cv2.MORPH_CLOSE,kernel_close)
         orange = cv2.bitwise_and(frame, frame, mask=orange_mask)
 
-        # Join stick data
-        position = spi.xfer2([0,0,0,0,0])
-        x = (position[1] << 8) | position[0]
-        y = (position[3] << 8) | position[2]
-        x_filter = x*ALPHA + x_filter*(1-ALPHA)
-        y_filter = y*ALPHA + y_filter*(1-ALPHA)
-        motor_x, motor_y, x_move, y_move = motorControl(x_filter,y_filter,motor_x,motor_y,move_angle)
-        pwm.setRotationAngle(1,motor_x)
-        pwm.setRotationAngle(0,motor_y)
-        
-        # Dead cat logic
-        for d_cat in dead_cats:
-            if x_move == 1: 
-                d_cat.x += move_angle*20
-            elif x_move == -1: 
-                d_cat.x -= move_angle*20
-            if y_move == 1: 
-                d_cat.y += move_angle*20
-            elif y_move == -1:
-                d_cat.y -= move_angle*20
-            d_cat.x, d_cat.y = int(d_cat.x), int(d_cat.y)
-            drawDeadCat(d_cat.x, d_cat.y)
-            
 
         # Button pressed logic
         button = (position[4] & 1) | (position[4] & 2)
@@ -269,14 +257,28 @@ try:
                 dead_cats.pop(0); 
 
 
+
         # Display crosshair, score and time
         drawCrosshair(crosshair_x,crosshair_y)
         fnt=cv2.FONT_HERSHEY_DUPLEX
         scoreText = "Score: " + str(score)
-        cv2.putText(frame,scoreText,(10,dispH-30),fnt,1,(0,121,250),3)
+        cv2.putText(frame,scoreText,(10,dispH-30),fnt,1,(0,255,0),3)
         
         timer = int(time()) - start_time
-        cv2.putText(frame,str(timer),(dispW-50,dispH-30),fnt,1,(0,121,250),3)
+        cv2.putText(frame,str(timer),(dispW-50,dispH-30),fnt,1,(0,255,0),3)
+       
+        # Dead cat logic
+        for d_cat in dead_cats:
+            drawDeadCat(d_cat.x, d_cat.y)
+            if x_move == 1: 
+                d_cat.x += move_angle*OFFSET
+            elif x_move == -1: 
+                d_cat.x -= move_angle*OFFSET
+            if y_move == 1: 
+                d_cat.y += move_angle*OFFSET
+            elif y_move == -1:
+                d_cat.y -= move_angle*OFFSET
+            d_cat.x, d_cat.y = int(d_cat.x), int(d_cat.y)
 
         # cv2.imshow('orange_mask', orange_mask)
         # cv2.moveWindow('orange_mask',0,500)
@@ -302,3 +304,4 @@ finally:
     pwm.exit_PCA9685()
     cam.release()
     cv2.destroyAllWindows()
+    GPIO.cleanup(40)
